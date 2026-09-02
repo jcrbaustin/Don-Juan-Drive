@@ -1,0 +1,33 @@
+app-id: io.github.juanromero.DonJuanDrive
+runtime: org.kde.Platform
+runtime-version: '6.6'
+sdk: org.kde.Sdk
+command: don-juan-drive
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --filesystem=host
+  - --device=all
+  - --talk-name=org.kde.StatusNotifierWatcher
+modules:
+  - name: rclone
+    buildsystem: simple
+    build-commands:
+      - install -D -m 755 rclone /app/bin/rclone
+    sources:
+      - type: archive
+        url: https://downloads.rclone.org/v1.65.2/rclone-v1.65.2-linux-amd64.zip
+        sha256: 01bfecfe9fbb87856cbf260a4f5f5fc81ab92c2db812a647ff952697b0a75d5b
+
+  - name: don-juan-drive
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=/app --no-deps -r requirements.txt
+      - pyinstaller --noconsole --onefile --add-data "icon_gray.png:." --add-data "icon_color.png:." --add-data "drive_color.png:." --add-data "drive_gris.png:." --name="don-juan-drive" main.py
+      - install -D -m 755 dist/don-juan-drive /app/bin/don-juan-drive
+      - install -D -m 644 io.github.juanromero.DonJuanDrive.desktop /app/share/applications/io.github.juanromero.DonJuanDrive.desktop
+    sources:
+      - type: dir
+        path: .
