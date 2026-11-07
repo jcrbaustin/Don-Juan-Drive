@@ -23,6 +23,7 @@ class DriveBackend(QObject):
             
         self.bisync_process.finished.connect(self.on_bisync_finished)
         
+        self.root_drive_path = os.path.expanduser("~/Google Drive")
         self.mount_path = os.path.expanduser("~/GoogleDrive_Mi_Unidad")
         self.mount_path_shared = os.path.expanduser("~/GoogleDrive_Compartido_Conmigo")
         self.mount_path_team = os.path.expanduser("~/GoogleDrive_Unidades_Compartidas")
@@ -31,6 +32,8 @@ class DriveBackend(QObject):
         self.cache_size = "50G"
         self._is_mounted = False
         self.has_team_drives = False
+        self._was_mounted_before_sleep = False
+        self._setup_sleep_listener()
 
     def actualizar_logs_stdout(self, process):
         data = process.readAllStandardOutput().data().decode('utf-8')
@@ -175,11 +178,34 @@ class DriveBackend(QObject):
                 return
                 
             self._is_mounted = True
+            self.setup_file_explorer_integration()
             self.status_changed.emit(True)
 
         except Exception as e:
             self.error_occurred.emit(f"Fallo al ejecutar rclone: {str(e)}")
             self._is_mounted = False
+
+    def setup_file_explorer_integration(self):
+        try:
+            os.makedirs(self.root_drive_path, exist_ok=True)
+            links = [
+                ("Mi unidad", self.mount_path),
+                ("Compartido conmigo", self.mount_path_shared),
+                ("Unidades compartidas", self.mount_path_team)
+            ]
+            for link_name, target in links:
+                link_path = os.path.join(self.root_drive_path, link_name)
+                try:
+                    if os.path.islink(link_path) or os.path.exists(link_path):
+                        os.remove(link_path)
+                    os.symlink(target, link_path)
+                except Exception:
+                    pass
+            dot_dir = os.path.join(self.root_drive_path, ".directory")
+            with open(dot_dir, "w", encoding="utf-8") as f:
+                f.write("[Desktop Entry]\nIcon=google-drive\n")
+        except Exception as e:
+            self.log_message.emit(f"Aviso integración explorador: {e}")
 
     def cierre_seguro(self):
         # 1. Desmontaje seguro en Linux (provoca que rclone vacíe caché y termine)
@@ -202,6 +228,34 @@ class DriveBackend(QObject):
             
         self._is_mounted = False
         self.status_changed.emit(False)
+
+    def _setup_sleep_listener(self):
+        try:
+            from PyQt6.QtDBus import QDBusConnection
+            system_bus = QDBusConnection.systemBus()
+            connected = system_bus.connect(
+                "org.freedesktop.login1",
+                "/org/freedesktop/login1",
+                "org.freedesktop.login1.Manager",
+                "PrepareForSleep",
+                self._on_prepare_for_sleep
+            )
+            if connected:
+                self.log_message.emit(">>> Monitoreo de suspensión del sistema (systemd PrepareForSleep) activado.")
+        except Exception as e:
+            self.log_message.emit(f"Aviso: No se pudo enlazar con systemd PrepareForSleep: {e}")
+
+    def _on_prepare_for_sleep(self, sleeping: bool):
+        if sleeping:
+            if self._is_mounted:
+                self._was_mounted_before_sleep = True
+                self.log_message.emit(">>> Suspensión detectada: Desmontando unidades para evitar bloqueos del sistema...")
+                self.cierre_seguro()
+        else:
+            if self._was_mounted_before_sleep:
+                self._was_mounted_before_sleep = False
+                self.log_message.emit(">>> Reanudación detectada: Remontando unidades Google Drive...")
+                self.start_mount()
         
     def start_bisync(self, local_path, remote_path):
         if self.bisync_process.state() != QProcess.ProcessState.NotRunning:

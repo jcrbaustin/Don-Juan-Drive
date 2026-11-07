@@ -430,8 +430,8 @@ class DriveTrayApp(QObject):
         self.action_login.triggered.connect(self.run_direct_login)
         self.menu.addAction(self.action_login)
         
-        self.action_config = QAction("Mostrar Configuración", self.menu)
-        self.action_config.triggered.connect(self.show_config)
+        self.action_config = QAction("Preferencias", self.menu)
+        self.action_config.triggered.connect(self.show_preferences)
         self.menu.addAction(self.action_config)
         
         self.action_logs = QAction("Ver Registros", self.menu)
@@ -443,6 +443,17 @@ class DriveTrayApp(QObject):
         self.menu.addAction(self.action_exit)
         
         self.tray.setContextMenu(self.menu)
+        
+        # Conectar activación de la bandeja (Clic izquierdo abre Popup oficial)
+        self.tray.activated.connect(self.on_tray_activated)
+        
+        # Inicializar Popup moderno y Ventana de Preferencias Material 3
+        from tray_popup import DriveTrayPopup
+        from preferences import DrivePreferencesWindow
+        self.popup = DriveTrayPopup(self.backend)
+        self.preferences_window = DrivePreferencesWindow(self.backend)
+        self.popup.open_preferences_requested.connect(self.show_preferences)
+        self.popup.open_logs_requested.connect(self.show_logs)
         
         # Conexión global para atrapar apagados del sistema operativo o Ctrl+Q
         from PyQt6.QtWidgets import QApplication
@@ -547,23 +558,46 @@ class DriveTrayApp(QObject):
         
     def open_drive(self):
         import os
-        if os.path.exists(self.backend.mount_path):
-            import subprocess
+        import subprocess
+        target = self.backend.root_drive_path
+        if not os.path.exists(target):
+            self.backend.setup_file_explorer_integration()
+        if os.path.exists(target):
+            subprocess.Popen(["xdg-open", target])
+        elif os.path.exists(self.backend.mount_path):
             subprocess.Popen(["xdg-open", self.backend.mount_path])
         else:
-            self.show_error("La carpeta no existe o la unidad no está montada.")
+            self.show_error("La carpeta de Google Drive no está montada.")
             
+    def on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.popup.toggle_popup(self.tray.geometry())
+
+    def show_preferences(self):
+        if hasattr(self, 'preferences_window') and self.preferences_window:
+            self.preferences_window.show()
+            self.preferences_window.raise_()
+            self.preferences_window.activateWindow()
+
     def show_config(self):
-        print(">>> SEÑAL RECIBIDA: Clic en Configuración")
-        if self.ventana_config:
-            self.ventana_config.show()
-            self.ventana_config.raise_()
-            self.ventana_config.activateWindow()
+        self.show_preferences()
 
     def run_direct_login(self):
-        print(">>> SEÑAL RECIBIDA: Clic en Iniciar Sesión")
-        if self.ventana_config:
-            self.ventana_config.run_config()
+        from account_dialog import GoogleAccountDialog
+        dialog = GoogleAccountDialog(self.backend)
+        dialog.open_preferences_requested.connect(self.show_preferences)
+        dialog.login_requested.connect(self.start_oauth_login)
+        dialog.exec()
+
+    def start_oauth_login(self):
+        import shutil
+        import subprocess
+        from PyQt6.QtWidgets import QMessageBox
+        rclone_path = shutil.which("rclone") or "rclone"
+        try:
+            subprocess.Popen([rclone_path, "config", "reconnect", f"{self.backend.remote_name}:"])
+        except Exception as e:
+            QMessageBox.information(None, "Iniciar Sesión", f"Ejecuta en tu terminal:\nrclone config reconnect {self.backend.remote_name}:")
         
     def show_logs(self):
         self.log_window.show()

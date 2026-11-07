@@ -49,9 +49,8 @@ def main():
     # Iniciar la aplicación en el System Tray
     tray_app = DriveTrayApp(app, backend)
     
-    # Iniciar Ventana Principal (Configuración) de inmediato
-    from gui import ConfigWindow
-    ventana = ConfigWindow(backend, tray_app)
+    # Ventana Principal de Preferencias (Material 3)
+    ventana = tray_app.preferences_window
     tray_app.ventana_config = ventana
     
     import subprocess

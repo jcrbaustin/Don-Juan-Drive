@@ -14,8 +14,8 @@ source venv/bin/activate
 pip install -r requirements.txt
 pip install pyinstaller
 
-# Compilar un solo ejecutable sin consola e inyectar los iconos (assets)
-pyinstaller --noconsole --onefile --add-data "icon_gray.png:." --add-data "icon_color.png:." --add-data "drive_color.png:." --add-data "drive_gris.png:." --name="$EXEC_NAME" main.py
+# Compilar un solo ejecutable usando la spec
+pyinstaller --clean don-juan-drive.spec
 deactivate
 
 # 2. Copiar ejecutable a ~/.local/bin
